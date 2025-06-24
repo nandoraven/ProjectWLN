@@ -6,16 +6,49 @@ import csv
 import numpy as np
 import math
 from scipy import stats
+import streamlit as st
+import io
 
-# Lees de CSV file en noem het dataframe df
-# nrows=44 om niet meer dan 44 datapunten in het dataframe te zetten
-# Vervolgens printen we de dataset.
-df = pd.read_csv('metingen.csv', header=0, nrows=44)
+# App configuratie
+st.set_page_config(
+    page_title="Basis Statistiek Tool",
+    page_icon="🧮",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
+# App titel en inleiding
+st.title("Basis Statistiek Tool")
+st.markdown("""
+Deze app helpt je met statistische analyse van gegevens, specifiek gericht op aardappelmassa's.
+Upload je eigen dataset of gebruik de voorbeeld dataset om analyses uit te voeren.
+""")
 
-print("Dit zijn de aardappel massa's in gram:")
-print("\n")
-print(df)
+# Sidebar voor bestandsupload en configuratie
+st.sidebar.header("Instellingen")
+
+# Optie om een bestand te uploaden of het voorbeeldbestand te gebruiken
+use_example = st.sidebar.checkbox("Gebruik voorbeeld dataset", value=True)
+
+if use_example:
+    # Gebruik het voorbeeldbestand
+    df = pd.read_csv('metingen.csv', header=0)
+    st.sidebar.info("Voorbeeld dataset geladen")
+else:
+    # Bestand upload mogelijkheid
+    uploaded_file = st.sidebar.file_uploader("Upload je CSV bestand", type=["csv"])
+    
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file, header=0)
+        st.sidebar.success("Bestand succesvol geüpload!")
+    else:
+        st.sidebar.warning("Geen bestand geüpload, gebruik het voorbeeldbestand")
+        df = pd.read_csv('metingen.csv', header=0)
+
+# Toon de dataset
+st.header("Dataset")
+st.write("Dit zijn de aardappel massa's in gram:")
+st.dataframe(df)
 
 # Bereken totaal aantal metingen, minimale en maximale massa
 # Gebruik len om het totaal aantal metingen te berekenen
@@ -24,378 +57,650 @@ totaal_metingen = len(df)
 min_massa = df['massa'].min()
 max_massa = df['massa'].max()
 
-# Print de resultaten
-print(f'Minimale massa: {min_massa}')
-print(f'Maximale massa: {max_massa}')
-print(f'Totaal aantal metingen: {totaal_metingen}')
+# Toon de resultaten in een expander
+with st.expander("Basisinformatie over de dataset", expanded=True):
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Minimale massa", f"{min_massa} g")
+    col2.metric("Maximale massa", f"{max_massa} g")
+    col3.metric("Totaal aantal metingen", totaal_metingen)
 
 
-bins = math.ceil(np.sqrt(totaal_metingen))
-print(f'Aantal klasse-intervallen: {bins}')
+st.header("Frequentieverdeling")
+st.markdown("De data wordt ingedeeld in klasse-intervallen voor statistische analyse.")
+
+# Gebruiker kan het aantal klasse-intervallen aanpassen
+st.sidebar.subheader("Frequentieverdeling instellingen")
+custom_bins = st.sidebar.checkbox("Pas aantal klasse-intervallen handmatig aan")
+
+if custom_bins:
+    bins = st.sidebar.slider("Aantal klasse-intervallen", min_value=3, max_value=20, 
+                           value=math.ceil(np.sqrt(totaal_metingen)), step=1)
+else:
+    bins = math.ceil(np.sqrt(totaal_metingen))
+
+st.write(f'Aantal klasse-intervallen: {bins}')
+
 # linspace genereert een array van waarden tussen min_massa en max_massa, inclusief de grenzen
 klassengrenzen = np.linspace(min_massa, max_massa, bins + 1)
-# pd.cut maakt klasse-intervallen op basis van de klassengrenzen, include_lowest=True zorgt ervoor dat de laagste waarde in de eerste klasse valt, right=True zorgt ervoor dat de rechtergrens van de klasse wordt inbegrepen in het interval
+# pd.cut maakt klasse-intervallen op basis van de klassengrenzen
 df['klasse'] = pd.cut(df['massa'], bins=klassengrenzen, include_lowest=True, right=True)
-# Print de breedte van de klassen
+# Bereken de breedte van de klassen
 klasse_breedtes = df['klasse'].apply(lambda x: x.right - x.left)
-print("\nBreedte van de klassen (alleen unieke waarden):")
-print(klasse_breedtes.unique())
-# 1. Absolute frequentie
-# Hoe vaak komt elke klasse voor in de dataset
+st.write("Breedte van de klassen (alleen unieke waarden):", klasse_breedtes.unique()[0], "gram")
+
+# 1. Absolute frequentie - hoe vaak komt elke klasse voor in de dataset
 absolute_frequentie = df['klasse'].value_counts().sort_index()
-# 2. Relatieve frequentie
-# Relatieve frequentie is de absolute frequentie gedeeld door het totaal aantal metingen
+# 2. Relatieve frequentie - absolute frequentie gedeeld door het totaal aantal metingen
 relatieve_frequentie = absolute_frequentie / totaal_metingen
-# 3. Cumulatieve frequentie
-# Cumulatieve frequentie is de som van de absolute frequenties tot en met de huidige klasse, cumsum() berekent de cumulatieve som
+# 3. Cumulatieve frequentie - som van de absolute frequenties tot en met de huidige klasse
 cumulatieve_frequentie = absolute_frequentie.cumsum()
 
-print("\nAbsolute frequentie:")
-print(absolute_frequentie)
-print("\nRelatieve frequentie:")
-print(relatieve_frequentie)
-print("\nCumulatieve frequentie:")
-print(cumulatieve_frequentie)
+# Toon de frequentieverdelingen in een tabblad weergave
+tab1, tab2, tab3 = st.tabs(["Absolute frequentie", "Relatieve frequentie", "Cumulatieve frequentie"])
+
+with tab1:
+    st.write("Aantal aardappels in elke massa-klasse:")
+    st.dataframe(absolute_frequentie.reset_index().rename(columns={'index': 'Klasse', 'klasse': 'Absolute frequentie'}))
+    
+    # Plot van absolute frequentieverdeling
+    fig, ax = plt.subplots(figsize=(10, 6))
+    absolute_frequentie.plot(kind='bar', ax=ax)
+    ax.set_title('Absolute frequentieverdeling')
+    ax.set_xlabel('Massa klasse (g)')
+    ax.set_ylabel('Aantal aardappels')
+    st.pyplot(fig)
+
+with tab2:
+    st.write("Percentage aardappels in elke massa-klasse:")
+    st.dataframe(relatieve_frequentie.reset_index().rename(columns={'index': 'Klasse', 'klasse': 'Relatieve frequentie'}))
+    
+    # Plot van relatieve frequentieverdeling
+    fig, ax = plt.subplots(figsize=(10, 6))
+    relatieve_frequentie.plot(kind='bar', ax=ax)
+    ax.set_title('Relatieve frequentieverdeling')
+    ax.set_xlabel('Massa klasse (g)')
+    ax.set_ylabel('Percentage aardappels')
+    # Percentages op de y-as
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.1%}'.format(y)))
+    st.pyplot(fig)
+
+with tab3:
+    st.write("Cumulatieve verdeling van aardappel-massa's:")
+    st.dataframe(cumulatieve_frequentie.reset_index().rename(columns={'index': 'Klasse', 'klasse': 'Cumulatieve frequentie'}))
+    
+    # Plot van cumulatieve frequentieverdeling
+    fig, ax = plt.subplots(figsize=(10, 6))
+    cumulatieve_frequentie.plot(kind='bar', ax=ax)
+    ax.set_title('Cumulatieve frequentieverdeling')
+    ax.set_xlabel('Massa klasse (g)')
+    ax.set_ylabel('Cumulatief aantal aardappels')
+    st.pyplot(fig)
+
+st.header("Statistische berekeningen")
+st.subheader("Deel 1: Statistieken op basis van losse metingen")
 
 # Bepaal het gemiddelde van de massa op basis van losse metingen
 gemiddelde_massa_los = (df['massa'].sum() / totaal_metingen) if totaal_metingen > 0 else 0
-print(f'\n--- Deel 1: Op basis van losse metingen ---')
-print(f'Gemiddelde massa (losse metingen): {gemiddelde_massa_los:.2f} g')
-# De gebruikte formule
-print("Formule gemiddelde (losse metingen): x̄ = Σxi / n")
+
+with st.expander("Gemiddelde massa berekening", expanded=True):
+    st.markdown("""
+    ### Gemiddelde berekening
+    Formule: $\\bar{x} = \\frac{\\sum_{i=1}^{n} x_i}{n}$
+    
+    Waarbij:
+    - $x_i$ = individuele massa waarde
+    - $n$ = totaal aantal metingen
+    """)
+    st.metric("Gemiddelde massa (losse metingen)", f"{gemiddelde_massa_los:.2f} g")
 
 # Bepaal de steekproef standaardafwijking van de massa (losse metingen)
-print("\nBerekening steekproefstandaardafwijking (losse metingen):")
-print("Formule steekproefvariantie (s²): Σ(xi - x̄)² / (n-1)")
-print("Formule steekproefstandaardafwijking (s): √s²")
-
-# Stap 1: Bereken de gekwadrateerde afwijkingen van de massa (losse metingen): (xi - x̄_los)²
-# xi is de massa van elke losse meting, x̄_los is het gemiddelde van de losse metingen
-gekwadrateerde_afwijkingen_los = []
-for xi in df['massa']:
-    afwijking_los = xi - gemiddelde_massa_los
-    gekwadrateerde_afwijkingen_los.append(afwijking_los ** 2)
+with st.expander("Standaardafwijking berekening", expanded=True):
+    st.markdown("""
+    ### Standaardafwijking berekening
     
+    Formule steekproefvariantie: $s^2 = \\frac{\\sum_{i=1}^{n} (x_i - \\bar{x})^2}{n-1}$
     
-# Stap 2: Sommeer de gekwadrateerde afwijkingen (losse metingen): Σ(xi - x̄_los)²
-som_gekwadrateerde_afwijkingen_los = sum(gekwadrateerde_afwijkingen_los)
-print(f'\nSom van gekwadrateerde afwijkingen Σ(xi - x̄_los)²: {som_gekwadrateerde_afwijkingen_los:.2f}')
+    Formule steekproefstandaardafwijking: $s = \\sqrt{s^2}$
+    """)
 
-# Stap 3: Bereken de steekproefvariantie s² (losse metingen) = Σ(xi - x̄_los)² / (n-1)
-if totaal_metingen > 1:
-    steekproef_variantie_los = som_gekwadrateerde_afwijkingen_los / (totaal_metingen - 1)
-else:
-    steekproef_variantie_los = 0 
-print(f'Steekproefvariantie s² (losse metingen): {steekproef_variantie_los:.2f}')
+    # Stap 1: Bereken de gekwadrateerde afwijkingen van de massa (losse metingen)
+    gekwadrateerde_afwijkingen_los = []
+    afwijkingen_los = []
+    for xi in df['massa']:
+        afwijking_los = xi - gemiddelde_massa_los
+        afwijkingen_los.append(afwijking_los)
+        gekwadrateerde_afwijkingen_los.append(afwijking_los ** 2)
+    
+    # Stap 2: Sommeer de gekwadrateerde afwijkingen
+    som_gekwadrateerde_afwijkingen_los = sum(gekwadrateerde_afwijkingen_los)
+    
+    # Toon afwijkingen in een tabel als gewenst
+    if st.checkbox("Toon afwijkingen van het gemiddelde"):
+        afwijkingen_df = pd.DataFrame({
+            'Massa (g)': df['massa'],
+            'Afwijking van gemiddelde (g)': afwijkingen_los,
+            'Gekwadrateerde afwijking': gekwadrateerde_afwijkingen_los
+        })
+        st.dataframe(afwijkingen_df)
+    
+    st.write(f"Som van gekwadrateerde afwijkingen: {som_gekwadrateerde_afwijkingen_los:.2f}")
+    
+    # Stap 3: Bereken de steekproefvariantie
+    if totaal_metingen > 1:
+        steekproef_variantie_los = som_gekwadrateerde_afwijkingen_los / (totaal_metingen - 1)
+    else:
+        steekproef_variantie_los = 0
+    
+    st.write(f"Steekproefvariantie: {steekproef_variantie_los:.2f}")
+    
+    # Stap 4: Bereken de steekproefstandaardafwijking
+    if steekproef_variantie_los >= 0:
+        handmatige_standaardafwijking_los = math.sqrt(steekproef_variantie_los)
+    else:
+        handmatige_standaardafwijking_los = 0
+    
+    st.metric("Steekproefstandaardafwijking (handmatig berekend)", f"{handmatige_standaardafwijking_los:.2f} g")
+    
+    # Ter controle met pandas .std() functie
+    pandas_standaardafwijking_los = df['massa'].std(ddof=1)  # ddof=1 voor steekproef standaardafwijking
+    st.metric("Steekproefstandaardafwijking (pandas)", f"{pandas_standaardafwijking_los:.2f} g")
 
-# Stap 4: Bereken de steekproefstandaardafwijking s (losse metingen) = √s²_los
-if steekproef_variantie_los >= 0:
-    handmatige_standaardafwijking_los = math.sqrt(steekproef_variantie_los)
-else:
-    handmatige_standaardafwijking_los = 0
-print(f'Steekproefstandaardafwijking s (losse metingen, handmatig): {handmatige_standaardafwijking_los:.2f} g')
-
-# Ter controle met pandas .std() functie (losse metingen):
-pandas_standaardafwijking_los = df['massa'].std(ddof=1)  # ddof=1 voor steekproef standaardafwijking
-print(f'Pandas steekproefstandaardafwijking s (losse metingen, pandas): {pandas_standaardafwijking_los:.2f} g')
-
-### Op basis van de frequentieverdeling
-print("\n--- Deel 2: Op basis van frequentieverdeling ---")
+st.subheader("Deel 2: Statistieken op basis van frequentieverdeling")
 
 # Stap 1: Bepaal de klasse-middens
-# Voor elk interval (klasse), set de onder- en bovengrens en bereken het klasse-midden (gemiddelde van de onder- en bovengrens)
 klasse_middens = []
 for interval in absolute_frequentie.index:
     ondergrens = interval.left
     bovengrens = interval.right
     klasse_midden = (ondergrens + bovengrens) / 2
     klasse_middens.append(klasse_midden)
-    
+
 # Converteer naar numpy array voor verdere berekeningen
 klasse_middens_np = np.array(klasse_middens)
 
-print("Stap 1: Klasse-middens:")
-# Weergave voor klasse-middens
-frequentietabel_middens = pd.DataFrame({
-    'Klasse': absolute_frequentie.index,
-    'Klassemidden (mᵢ)': klasse_middens_np
-})
-print(frequentietabel_middens.to_string())
-print(f"\nKlassemiddens als lijst: {klasse_middens_np.tolist()}")
-
-# Stap 2: Bepaal het gemiddelde (x̄_freq) op basis van de frequentieverdeling
-print("\n\nStap 2: Bereken het gemiddelde (x̄_freq) op basis van de frequentieverdeling")
-print("Formule: x̄_freq ≈ Σ(fᵢ * mᵢ) / n")
-print("Waarbij:")
-print("fᵢ = absolute frequentie van klasse i")
-print("mᵢ = klassemidden van klasse i")
-print("n = totaal aantal metingen")
-
-# 2a: Bereken fᵢ * mᵢ voor elke klasse
-# absolute_frequentie.values bevat de fᵢ waarden
-# klasse_middens_np bevat de mᵢ waarden
-product_fi_mi = absolute_frequentie.values * klasse_middens_np
-print(f"Product fᵢ * mᵢ: {product_fi_mi}")
-# Presenteer data in een DataFrame
-tabel_fi_mi = pd.DataFrame({
-    'Klasse': absolute_frequentie.index,
-    'fᵢ': absolute_frequentie.values,
-    'mᵢ': klasse_middens_np,
-    'fᵢ * mᵢ': product_fi_mi
-})
-print("\nTabel met absolute frequentie(fᵢ), klassenmidden(mᵢ) en fᵢ * mᵢ:")
-print(tabel_fi_mi.to_string(index=False))
-
-# 2b: Sommeer de producten (Σ(fᵢ * mᵢ))
-som_product_fi_mi = product_fi_mi.sum()
-print(f"\nSom van producten Σ(fᵢ * mᵢ): {som_product_fi_mi:.2f}")
-
-# 2c: Deel door het totaal aantal metingen (n) om het gemiddelde te berekenen
-if totaal_metingen > 0:
-    gemiddelde_massa_freq = som_product_fi_mi / totaal_metingen
-    print(f"Totaal aantal metingen (n): {totaal_metingen}")
-    print(f"Benaderd gemiddelde (x̄_freq) = {som_product_fi_mi:.4f}/{totaal_metingen} = {gemiddelde_massa_freq:.2f}g")
-else:
-    gemiddelde_massa_freq = 0 # Voorkomen van deling door nul
-    print("Totaal aantal metingen is 0, kan geen gemiddelde berekenen.")    
+with st.expander("Berekening van klasse-middens", expanded=True):
+    st.markdown("""
+    ### Klasse-middens
+    Voor elke klasse berekenen we het midden door het gemiddelde van de ondergrens en bovengrens te nemen:
     
-# Stap 3: Bereken de (benaderde) steekproef standaardafwijking (s_freq) op basis van de frequentieverdeling
-# Formule: s_freq ≈ √(Σ(fᵢ * (mᵢ - x̄_freq)²) / (n-1))
-# Waarbij:
-# fᵢ = absolute frequentie van klasse i
-# mᵢ = klassemidden van klasse i
-# x̄_freq = gemiddelde op basis van frequentieverdeling
-# n = totaal aantal metingen -> n-1 voor steekproefvariantie
-
-print("\n\nStap 3: Bereken de (benaderde) steekproef standaardafwijking (s_freq) op basis van de frequentieverdeling")
-print("Formule: s_freq ≈ √(Σ(fᵢ * (mᵢ - x̄_freq)²) / (n-1))")
-print("Formule steekproefstandaardafwijking: s_freq = √s²_freq")
-
-
-# We starten een iteratie om voor elke klasse de afwijking van het klassemidden tot het gemiddelde te berekenen en de variantie te bepalen.
-# Controleer of het gemiddelde is berekend en n > 1 is. 
-if totaal_metingen > 1 and 'gemiddelde_massa_freq' in locals() and gemiddelde_massa_freq is not None:
-    # 3a: Bereken de afwijking can elk klassemidden tot het gemiddelde: (mᵢ - x̄_freq)
-    afwijking_midden_vs_gemiddelde_freq = klasse_middens_np - gemiddelde_massa_freq
+    $m_i = \\frac{\\text{ondergrens} + \\text{bovengrens}}{2}$
+    """)
     
-    # 3b: Kwadrateer de afwijkingen: (mᵢ - x̄_freq)²
-    gekwadrateerde_afwijkingen_freq = afwijking_midden_vs_gemiddelde_freq ** 2
-
-    # 3c: Vermenigvuldig met de frequentie van de klasse: fᵢ * (mᵢ - x̄_freq)²
-    product_fi_gekwadrateerde_afwijkingen = absolute_frequentie.values * gekwadrateerde_afwijkingen_freq
-    
-    # Toon tussenstappen in een DataFrame
-    tabel_variantie_stappen = pd.DataFrame({
+    # Weergave voor klasse-middens
+    frequentietabel_middens = pd.DataFrame({
         'Klasse': absolute_frequentie.index,
-        'fᵢ': absolute_frequentie.values,
-        'mᵢ': klasse_middens_np,
-        'mᵢ - x̄_freq': afwijking_midden_vs_gemiddelde_freq,
-        '(mᵢ - x̄_freq)²': gekwadrateerde_afwijkingen_freq,
-        'fᵢ * (mᵢ - x̄_freq)²': product_fi_gekwadrateerde_afwijkingen
+        'Klassemidden (mᵢ)': klasse_middens_np
     })
-    print("\nTabel met stappen voor berekening van steekproefvariantie:")
-    print(tabel_variantie_stappen.to_string(index=False))
+    st.dataframe(frequentietabel_middens)
     
-    # 3d: Sommeer de producten (Σ(fᵢ * (mᵢ - x̄_freq)²))
-    som_product_fi_gekwadrateerde_afwijkingen = product_fi_gekwadrateerde_afwijkingen.sum()
-    print(f"\nSom van producten Σ(fᵢ * (mᵢ - x̄_freq)²): {som_product_fi_gekwadrateerde_afwijkingen:.2f}")
+    st.write("Klassemiddens als lijst:", klasse_middens_np.tolist())
+
+# Stap 2: Bepaal het gemiddelde op basis van de frequentieverdeling
+with st.expander("Gemiddelde op basis van frequentieverdeling", expanded=True):
+    st.markdown("""
+    ### Gemiddelde berekening op basis van frequentieverdeling
     
-    #3e: Bereken de steekproefvariantie s²_freq
-    # De noemer is (n-1) voor steekproefvariantie
-    steekproef_variantie_freq = som_product_fi_gekwadrateerde_afwijkingen / (totaal_metingen - 1)
-    print(f"Steekproefvariantie s²_freq: {steekproef_variantie_freq:.2f}")
+    Formule: $\\bar{x}_{freq} \\approx \\frac{\\sum(f_i \\cdot m_i)}{n}$
     
-    # 3f: Bereken de steekproefstandaardafwijking s_freq
-    if steekproef_variantie_freq >= 0:
-        handmatige_standaardafwijking_freq = math.sqrt(steekproef_variantie_freq)
-        print(f"Steekproefstandaardafwijking s_freq (handmatig): {handmatige_standaardafwijking_freq:.2f} g")
+    Waarbij:
+    - $f_i$ = absolute frequentie van klasse i
+    - $m_i$ = klassemidden van klasse i
+    - $n$ = totaal aantal metingen
+    """)
+    
+    # Bereken fᵢ * mᵢ voor elke klasse
+    product_fi_mi = absolute_frequentie.values * klasse_middens_np
+    
+    # Presenteer data in een DataFrame
+    tabel_fi_mi = pd.DataFrame({
+        'Klasse': absolute_frequentie.index,
+        'fᵢ (Absolute frequentie)': absolute_frequentie.values,
+        'mᵢ (Klassemidden)': klasse_middens_np,
+        'fᵢ * mᵢ': product_fi_mi
+    })
+    st.dataframe(tabel_fi_mi)
+    
+    # Sommeer de producten
+    som_product_fi_mi = product_fi_mi.sum()
+    st.write(f"Som van producten Σ(fᵢ * mᵢ): {som_product_fi_mi:.2f}")
+    
+    # Bereken het gemiddelde
+    if totaal_metingen > 0:
+        gemiddelde_massa_freq = som_product_fi_mi / totaal_metingen
+        st.write(f"Totaal aantal metingen (n): {totaal_metingen}")
+        st.write(f"Benaderd gemiddelde (x̄_freq) = {som_product_fi_mi:.4f}/{totaal_metingen} = {gemiddelde_massa_freq:.2f} g")
+        
+        # Vergelijking met het gemiddelde op basis van losse metingen
+        verschil = abs(gemiddelde_massa_freq - gemiddelde_massa_los)
+        st.info(f"Het verschil tussen het gemiddelde berekend op basis van losse metingen ({gemiddelde_massa_los:.2f} g) en op basis van frequentieverdeling ({gemiddelde_massa_freq:.2f} g) is {verschil:.2f} g.")
     else:
+        gemiddelde_massa_freq = 0
+        st.error("Totaal aantal metingen is 0, kan geen gemiddelde berekenen.")    
+    
+# Stap 3: Bereken de standaardafwijking op basis van frequentieverdeling
+with st.expander("Standaardafwijking op basis van frequentieverdeling", expanded=True):
+    st.markdown("""
+    ### Standaardafwijkingsberekening op basis van frequentieverdeling
+    
+    Formule: $s_{freq} \\approx \\sqrt{\\frac{\\sum f_i \\cdot (m_i - \\bar{x}_{freq})^2}{n-1}}$
+    
+    Waarbij:
+    - $f_i$ = absolute frequentie van klasse i
+    - $m_i$ = klassemidden van klasse i
+    - $\\bar{x}_{freq}$ = gemiddelde op basis van frequentieverdeling
+    - $n$ = totaal aantal metingen
+    """)
+    
+    # Controleer of het gemiddelde is berekend en n > 1 is
+    if totaal_metingen > 1 and 'gemiddelde_massa_freq' in locals() and gemiddelde_massa_freq is not None:
+        # Bereken de afwijking van elk klassemidden tot het gemiddelde
+        afwijking_midden_vs_gemiddelde_freq = klasse_middens_np - gemiddelde_massa_freq
+        
+        # Kwadrateer de afwijkingen
+        gekwadrateerde_afwijkingen_freq = afwijking_midden_vs_gemiddelde_freq ** 2
+        
+        # Vermenigvuldig met de frequentie van de klasse
+        product_fi_gekwadrateerde_afwijkingen = absolute_frequentie.values * gekwadrateerde_afwijkingen_freq
+        
+        # Toon tussenstappen in een DataFrame
+        tabel_variantie_stappen = pd.DataFrame({
+            'Klasse': absolute_frequentie.index,
+            'fᵢ (Absolute frequentie)': absolute_frequentie.values,
+            'mᵢ (Klassemidden)': klasse_middens_np,
+            'mᵢ - x̄_freq': afwijking_midden_vs_gemiddelde_freq,
+            '(mᵢ - x̄_freq)²': gekwadrateerde_afwijkingen_freq,
+            'fᵢ * (mᵢ - x̄_freq)²': product_fi_gekwadrateerde_afwijkingen
+        })
+        st.dataframe(tabel_variantie_stappen)
+        
+        # Sommeer de producten
+        som_product_fi_gekwadrateerde_afwijkingen = product_fi_gekwadrateerde_afwijkingen.sum()
+        st.write(f"Som van producten Σ(fᵢ * (mᵢ - x̄_freq)²): {som_product_fi_gekwadrateerde_afwijkingen:.2f}")
+        
+        # Bereken de steekproefvariantie
+        steekproef_variantie_freq = som_product_fi_gekwadrateerde_afwijkingen / (totaal_metingen - 1)
+        st.write(f"Steekproefvariantie: {steekproef_variantie_freq:.2f}")
+        
+        # Bereken de steekproefstandaardafwijking
+        if steekproef_variantie_freq >= 0:
+            handmatige_standaardafwijking_freq = math.sqrt(steekproef_variantie_freq)
+            st.metric("Steekproefstandaardafwijking (frequentieverdeling)", f"{handmatige_standaardafwijking_freq:.2f} g")
+            
+            # Vergelijking met standaardafwijking op basis van losse metingen
+            verschil_sd = abs(handmatige_standaardafwijking_freq - handmatige_standaardafwijking_los)
+            st.info(f"Het verschil tussen de standaardafwijking berekend op basis van losse metingen ({handmatige_standaardafwijking_los:.2f} g) en op basis van frequentieverdeling ({handmatige_standaardafwijking_freq:.2f} g) is {verschil_sd:.2f} g.")
+        else:
+            st.error("Standaardafwijking kan niet worden berekend (negatieve variantie).")
+    else:
+        st.error("Standaardafwijking kan niet worden berekend (onvoldoende metingen of gemiddelde niet beschikbaar).")
+        # Definieer de variabele om fouten in de code verderop te voorkomen
         handmatige_standaardafwijking_freq = 0
-        print("\nStandaardafwijking (frequentieverdeling) kan niet worden berekend (onvoldoende metingen of gemiddelde niet beschikbaar).")
 
-print("\n\n--- Vraag 3: Normal Probability Plot ---")
+st.header("Normal Probability Plot")
+st.markdown("""
+Een Normal Probability Plot (ook bekend als Q-Q plot) helpt om te beoordelen of de data ongeveer normaal verdeeld zijn. 
+Als de punten dicht bij de regressielijn liggen, suggereert dit dat de data een normale verdeling volgen.
+""")
 
-from scipy import stats
+# Maak tabs voor de plot en de data
+tab1, tab2 = st.tabs(["Plot", "Data"])
 
-# Formaat van de plot
-plt.figure(figsize=(10, 8))
+with tab1:
+    # Bereken de data voor de pplot
+    (osm, osr), (slope, intercept, r_value) = stats.probplot(df['massa'], dist="norm", plot=None)
+    
+    # Maak de figuur
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Maak de scatter plot
+    ax.scatter(osr, osm, label='Geobserveerde waarden', s=50)
+    
+    # Voeg de regressielijn toe
+    x_line_plot = np.linspace(osr.min(), osr.max(), 100)
+    
+    if abs(float(slope)) > 1e-9:  # Voorkom deling door nul
+        y_line_plot = (x_line_plot - intercept) / slope
+        ax.plot(x_line_plot, y_line_plot, 'r', label='Regressielijn (kleinste kwadraten)', linewidth=2)
+    else:
+        st.warning("Helling van de regressielijn is zeer klein, de lijn kan mogelijk niet correct worden weergegeven.")
+    
+    ax.set_title('Normal Probability Plot van Aardappel Massa (assen gedraaid)')
+    ax.set_xlabel('Theoretische Waarden (z-scores)')
+    ax.set_ylabel('Geobserveerde Waarden (Massa g)')
+    ax.grid(True)
+    
+    # Toon R-kwadraat op de plot
+    r_squared = float(r_value)**2
+    ax.text(0.05, 0.95, f'$R^2 = {r_squared:.4f}$', transform=ax.transAxes,
+            fontsize=12, verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', fc='wheat', alpha=0.5))
+    
+    ax.legend()
+    st.pyplot(fig)
+    
+    # Interpretatie
+    if r_squared > 0.95:
+        st.success(f"R² = {r_squared:.4f}: De data volgt zeer waarschijnlijk een normale verdeling.")
+    elif r_squared > 0.90:
+        st.info(f"R² = {r_squared:.4f}: De data volgt redelijk goed een normale verdeling.")
+    else:
+        st.warning(f"R² = {r_squared:.4f}: De data wijkt mogelijk af van een normale verdeling.")
 
-# Stap 1: Bereken de data voor de pplot
-# osm = Ordered Statistic Method (geobserveerde waarden, gesorteerd)
-# osr = Ordered Statistic Rank (theoretische waarden / z-scores voor normale verdeling)
-# De regressie lijn berekend door probplot is: osm = slope *osr + intercept
-(osm, osr), (slope, intercept, r_value) = stats.probplot(df['massa'], dist="norm", plot=None)
+with tab2:
+    # Toon de tabel met corresponderende data
+    data_tabel = pd.DataFrame({
+        'Geobserveerde Waarde (Massa g)': osm,
+        'Theoretische Waarde (z-score)': osr
+    }).round(4)
+    
+    st.dataframe(data_tabel)
+    
+    # Toon de regressieparameters
+    st.subheader("Parameters van de regressielijn")
+    st.markdown(f"""
+    Formule: Geobserveerde waarde = slope × Theoretische waarde + intercept
+    
+    - Helling (slope): {float(slope):.4f}
+    - Onderschepping (intercept): {float(intercept):.4f}
+    - Correlatiecoëfficiënt (r-value): {float(r_value):.4f}
+    - R-kwadraat (R²): {r_squared:.4f}
+    """)
+    
+    # Optie om de plot-data te downloaden
+    csv = data_tabel.to_csv(index=False)
+    st.download_button(
+        label="Download plot data als CSV",
+        data=csv,
+        file_name="normal_probability_plot_data.csv",
+        mime="text/csv"
+    )
 
-# Stap 2: Maak de scatter plot
-plt.scatter(osr, osm, label='Geobserveerde waarden (osm)', s=50)
+st.header("Samenvatting Bevindingen")
 
-# Stap 3: Voeg de regressielijn toe
-# De oorspronkelijke lijn is: osm = slope * osr + intercept
-# We willen nu osr and een functie van osm: osr= (osm - intercept) / slope
-x_line_plot = np.linspace(osr.min(), osr.max(), 100)
+# Samenvatting van de bevindingen in een mooi formaat
+st.markdown(f"""
+### Kerncijfers
+- Gemiddelde massa op basis van losse metingen: **{gemiddelde_massa_los:.2f} g**
+- Gemiddelde massa op basis van frequentieverdeling: **{gemiddelde_massa_freq:.2f} g**
+- Standaardafwijking op basis van losse metingen: **{handmatige_standaardafwijking_los:.2f} g**
+- Standaardafwijking op basis van frequentieverdeling: **{handmatige_standaardafwijking_freq:.2f} g**
+""")
 
-if abs(slope) > 1e-9:  # Voorkom deling door nul
-    y_line_plot = (x_line_plot - intercept) / slope
-    plt.plot(x_line_plot, y_line_plot, 'r', label='Regressielijn (kleinste kwadraten)', linewidth=2)
-else:
-    # Dit scenario (slope is bijna nul) is onwaarschijnlijk voor typische data in een probplot.
-    # Het zou betekenen dat de geobserveerde waarden nauwelijks variëren met de theoretische kwantielen.
-    print("Waarschuwing: Helling van de regressielijn is zeer klein, de lijn kan mogelijk niet correct worden weergegeven.")
+# Betrouwbaarheidsintervallen sectie
+st.header("Betrouwbaarheidsinterval voor het Gemiddelde")
+st.markdown("""
+Een betrouwbaarheidsinterval geeft een bereik waarin de werkelijke populatie-parameter met een bepaalde waarschijnlijkheid ligt.
+""")
 
-plt.title('Normal Probability Plot van Aardappel Massa (assen gedraaid)')
-plt.xlabel('Geobserveerde Waarden (Massa g)') # Nu osm
-plt.ylabel('Theoretische Waarden (z-scores)') # Nu osr
-plt.grid(True)
+# Gebruiker kan het betrouwbaarheidsniveau kiezen
+confidence_level = st.slider(
+    "Kies een betrouwbaarheidsniveau",
+    min_value=80,
+    max_value=99,
+    value=95,
+    step=1,
+    format="%d%%"
+)
 
-# Toon R-kwadraat op de plot
-r_squared = r_value**2
-plt.text(0.05, 0.95, f'$R^2 = {r_squared:.4f}$', transform=plt.gca().transAxes,
-         fontsize=12, verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', fc='wheat', alpha=0.5))
-
-plt.legend()
-plt.savefig('aardappels_normal_probability_plot_gedraaid.png') # Sla op met een nieuwe naam eventueel
-plt.show()
-
-# 4. Maak en toon de tabel met corresponderende data
-# osm (geobserveerde waarden) en osr (theoretische waarden) zijn al gesorteerd zoals ze in de plot gebruikt worden.
-data_tabel = pd.DataFrame({
-    'Geobserveerde Waarde (Massa g)': osm,
-    'Theoretische Waarde (z-score)': osr
-})
-print("\nTabel met data voor Normal Probability Plot:")
-# .round(4) voor betere leesbaarheid van de waarden
-print(data_tabel.round(4))
-
-# Deze parameters horen bij de formule: geobserveerd = slope * theoretisch + intercept
-print(f"\nParameters van de oorspronkelijke regressielijn (geobserveerd = slope * theoretisch + intercept):")
-print(f"  Helling (slope): {slope:.4f}")
-print(f"  Onderschepping (intercept): {intercept:.4f}")
-print(f"  Correlatiecoëfficiënt (r-value): {r_value:.4f}")
-print(f"  R-kwadraat: {r_squared:.4f}")
-
-# Bevindingen
-print("\n--- Bevindingen ---")
-print("1. De gemiddelde massa van de aardappels is {:.2f} g op basis van losse metingen en {:.2f} g op basis van de frequentieverdeling.".format(gemiddelde_massa_los, gemiddelde_massa_freq))
-print("2. De steekproef standaardafwijking is {:.2f} g op basis van losse metingen en {:.2f} g op basis van de frequentieverdeling.".format(handmatige_standaardafwijking_los, handmatige_standaardafwijking_freq))
-
-print("\n\n--- Opdracht 4: Betrouwbaarheidsinterval van de verwachting μ ---")
-
-# Bereken het 95% betrouwbaarheidsinterval voor het gemiddelde
-# Formule: x̄ ± t_(α/2, n-1) * (s/√n)
-alpha = 0.05  # Voor 95% betrouwbaarheidsinterval
+# Bereken het betrouwbaarheidsinterval voor het gemiddelde
+alpha = (100 - confidence_level) / 100  # bijv. 95% -> alpha = 0.05
 n = totaal_metingen
 df_t = n - 1  # vrijheidsgraden voor t-verdeling
-# stats.t.ppf geeft de kritieke t-waarde voor een gegeven alpha en vrijheidsgraden
-# Voor een tweezijdig betrouwbaarheidsinterval gebruiken we 1 - alpha/2
-# df_t = n - 1  # Vrijheidsgraden voor t-verdeling
-# Stats heeft geen tabellen, maar we kunnen de kritieke t-waarde berekenen met de t-verdeling
-# de t-waarde wordt berekend door de percent-point function (ppf) van de t-verdeling
+
+# Verkrijg de kritieke t-waarde
 t_kritiek = stats.t.ppf(1 - alpha / 2, df_t)
-print(f"Steekproefgemiddelde (x̄): {gemiddelde_massa_los:.2f} g")
-print(f"Steekproefstandaardafwijking (s): {handmatige_standaardafwijking_los:.2f} g")
-print(f"Steekproefgrootte (n): {n}")
-print(f"Vrijheidsgraden (n-1): {df_t}")
-print(f"Kritieke t-waarde (t_(α/2, n-1)) voor {(1-alpha)*100:.0f}% interval: {t_kritiek:.4f}")
+
+# Maak twee kolommen voor de gegevens en het resultaat
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("### Gegevens")
+    st.write(f"Steekproefgemiddelde (x̄): {gemiddelde_massa_los:.2f} g")
+    st.write(f"Steekproefstandaardafwijking (s): {handmatige_standaardafwijking_los:.2f} g")
+    st.write(f"Steekproefgrootte (n): {n}")
+    st.write(f"Vrijheidsgraden (n-1): {df_t}")
+    st.write(f"Kritieke t-waarde (t_(α/2, n-1)): {t_kritiek:.4f}")
 
 # Standaardfout van het gemiddelde
 standaardfout = handmatige_standaardafwijking_los / math.sqrt(n)
-print(f"Standaardfout van het gemiddelde (s/√n): {standaardfout:.4f}")
 
 # Bereken de foutmarge
 foutmarge = t_kritiek * standaardfout
-print(f"Foutmarge (t_(α/2, n-1) * (s/√n)): {foutmarge:.4f}")
 
 # Bereken het betrouwbaarheidsinterval
-ondergrens = gemiddelde_massa_los - foutmarge
-bovengrens = gemiddelde_massa_los + foutmarge
-print(f"\n{(1-alpha)*100:.0f}% Betrouwbaarheidsinterval: [{ondergrens:.2f}, {bovengrens:.2f}] g")
+ondergrens = float(gemiddelde_massa_los) - float(foutmarge)
+bovengrens = float(gemiddelde_massa_los) + float(foutmarge)
+
+with col2:
+    st.markdown("### Berekening")
+    st.latex(r'\bar{x} \pm t_{\alpha/2, n-1} \cdot \frac{s}{\sqrt{n}}')
+    st.write(f"Standaardfout (s/√n): {standaardfout:.4f}")
+    st.write(f"Foutmarge: {foutmarge:.4f}")
+    st.success(f"{confidence_level}% Betrouwbaarheidsinterval: [{ondergrens:.2f}, {bovengrens:.2f}] g")
+    
+    # Visualisatie met een gauge chart
+    fig_gauge = {
+        "data": [
+            {
+                "type": "indicator",
+                "mode": "gauge+number",
+                "value": gemiddelde_massa_los,
+                "title": {"text": f"Gemiddelde met {confidence_level}% BI"},
+                "gauge": {
+                    "axis": {"range": [None, max_massa * 1.1], "tickwidth": 1},
+                    "bar": {"color": "darkblue"},
+                    "bgcolor": "white",
+                    "borderwidth": 2,
+                    "bordercolor": "gray",
+                    "steps": [
+                        {"range": [min_massa, ondergrens], "color": "lightgray"},
+                        {"range": [ondergrens, bovengrens], "color": "lightblue"},
+                        {"range": [bovengrens, max_massa], "color": "lightgray"}
+                    ],
+                }
+            }
+        ],
+        "layout": {"height": 300, "margin": {"t": 30, "b": 0, "l": 30, "r": 30}}
+    }
+    st.plotly_chart(fig_gauge, use_container_width=True)
 
 # Conclusies
-print("\n--- Bevindingen ---")
-print(f"1. De steekproef van {n} aardappelen heeft een gemiddelde massa van {gemiddelde_massa_los:.2f} g.")
-print(f"2. Met 95% betrouwbaarheid kunnen we stellen dat het populatiegemiddelde")
-print(f"   van de aardappelmassa's ligt tussen {ondergrens:.2f} g en {bovengrens:.2f} g.")
-print(f"3. De standaardafwijking bedraagt {handmatige_standaardafwijking_los:.2f} g")
+st.subheader("Conclusies")
+st.markdown(f"""
+1. De steekproef van **{n} aardappelen** heeft een gemiddelde massa van **{gemiddelde_massa_los:.2f} g**.
+2. Met **{confidence_level}% betrouwbaarheid** kunnen we stellen dat het populatiegemiddelde van de aardappelmassa's ligt tussen **{ondergrens:.2f} g** en **{bovengrens:.2f} g**.
+3. De standaardafwijking bedraagt **{handmatige_standaardafwijking_los:.2f} g**, wat duidt op de spreiding in de massa van individuele aardappelen.
+""")
 
-print("\n--- Betrouwbaarheidsinterval voor de Standaarddeviatie ---")
+st.header("Betrouwbaarheidsinterval voor de Standaarddeviatie")
+st.markdown("""
+Het betrouwbaarheidsinterval voor de standaarddeviatie geeft aan binnen welke grenzen de werkelijke populatie-standaardafwijking (σ) waarschijnlijk ligt.
+""")
 
-# Het berekenen van een betrouwbaarheidsinterval voor de standaarddeviatie
-# maakt gebruik van de chi-kwadraat verdeling
-alpha = 0.05  # Voor 95% betrouwbaarheidsinterval
+# Als de gebruiker het betrouwbaarheidsniveau al gekozen heeft, gebruik dat, anders standaard 95%
+if 'confidence_level' not in locals():
+    confidence_level = st.slider(
+        "Kies een betrouwbaarheidsniveau",
+        min_value=80,
+        max_value=99,
+        value=95,
+        step=1,
+        key="conf_level_sd",
+        format="%d%%"
+    )
+
+# Bereken het betrouwbaarheidsinterval voor de standaarddeviatie
+alpha = (100 - confidence_level) / 100  # bijv. 95% -> alpha = 0.05
 n = totaal_metingen
 df_chi2 = n - 1  # vrijheidsgraden voor chi-kwadraat verdeling
 
-# Kritieke waarden van chi-kwadraat voor onder- en bovengrens
-# Deze waarden worden berekend met de percent-point function (ppf) van de chi-kwadraat verdeling
-# Dit doen we met de scipy.stats.chi2 module
-# chi2.ppf geeft de kritieke waarde voor een gegeven alpha en vrijheidsgraden
-# Voor een tweezijdig betrouwbaarheidsinterval gebruiken we alpha/2 voor de ondergrens en 1 - alpha/2 voor de bovengrens
+# Kritieke waarden van chi-kwadraat
 chi2_lower = stats.chi2.ppf(alpha/2, df_chi2)
 chi2_upper = stats.chi2.ppf(1 - alpha/2, df_chi2)
 
-print(f"Steekproefstandaarddeviatie (s): {handmatige_standaardafwijking_los:.4f} g")
-print(f"Steekproefvariantie (s²): {steekproef_variantie_los:.4f}")
-print(f"Vrijheidsgraden (n-1): {df_chi2}")
-print(f"Chi-kwadraat ondergrens (χ²_(α/2, n-1)): {chi2_lower:.4f}")
-print(f"Chi-kwadraat bovengrens (χ²_(1-α/2, n-1)): {chi2_upper:.4f}")
-
-# Formule: √[(n-1)s² / χ²_(α/2, n-1)] < σ < √[(n-1)s² / χ²_(1-α/2, n-1)]
-# Berekent de onder- en bovengrens van het betrouwbaarheidsinterval 
+# Bereken de grenzen van het betrouwbaarheidsinterval
 sd_lower = math.sqrt((df_chi2 * steekproef_variantie_los) / chi2_upper)
 sd_upper = math.sqrt((df_chi2 * steekproef_variantie_los) / chi2_lower)
 
-print(f"\nBerekening ondergrens: √[({df_chi2} × {steekproef_variantie_los:.4f}) / {chi2_upper:.4f}] = {sd_lower:.4f}")
-print(f"Berekening bovengrens: √[({df_chi2} × {steekproef_variantie_los:.4f}) / {chi2_lower:.4f}] = {sd_upper:.4f}")
+# Maak twee kolommen voor de gegevens en het resultaat
+col1, col2 = st.columns(2)
 
-print(f"\n{(1-alpha)*100:.0f}% Betrouwbaarheidsinterval voor σ: [{sd_lower:.2f}, {sd_upper:.2f}] g")
+with col1:
+    st.markdown("### Gegevens")
+    st.write(f"Steekproefstandaardafwijking (s): {handmatige_standaardafwijking_los:.4f} g")
+    st.write(f"Steekproefvariantie (s²): {steekproef_variantie_los:.4f}")
+    st.write(f"Vrijheidsgraden (n-1): {df_chi2}")
+    st.write(f"Chi-kwadraat ondergrens: {chi2_lower:.4f}")
+    st.write(f"Chi-kwadraat bovengrens: {chi2_upper:.4f}")
 
+with col2:
+    st.markdown("### Berekening")
+    st.latex(r'\sqrt{\frac{(n-1)s^2}{\chi^2_{\alpha/2,n-1}}} < \sigma < \sqrt{\frac{(n-1)s^2}{\chi^2_{1-\alpha/2,n-1}}}')
+    st.write(f"Ondergrens: √[({df_chi2} × {steekproef_variantie_los:.4f}) / {chi2_upper:.4f}] = {sd_lower:.4f}")
+    st.write(f"Bovengrens: √[({df_chi2} × {steekproef_variantie_los:.4f}) / {chi2_lower:.4f}] = {sd_upper:.4f}")
+    st.success(f"{confidence_level}% Betrouwbaarheidsinterval voor σ: [{sd_lower:.2f}, {sd_upper:.2f}] g")
 
-print("\n--- Bevindingen ---")
-print(f"De populatie standaardafwijking (σ) van de aardappelmassa's ")
-print(f"ligt tussen {sd_lower:.2f} g en {sd_upper:.2f} g.")
-print(f"Dit betekent dat de werkelijke variabiliteit in aardappelmassa's kan")
-print(f"afwijken van de steekproefschatting ({handmatige_standaardafwijking_los:.2f} g), maar met 95%")
-print(f"zekerheid binnen deze grenzen valt.")
+st.info(f"""
+De populatie standaardafwijking (σ) van de aardappelmassa's ligt met {confidence_level}% zekerheid tussen {sd_lower:.2f} g en {sd_upper:.2f} g.
+Dit betekent dat de werkelijke variabiliteit in aardappelmassa's kan afwijken van de steekproefschatting ({handmatige_standaardafwijking_los:.2f} g), maar waarschijnlijk binnen deze grenzen valt.
+""")
 
-print("\n\n--- Opdracht 5: Kans op Afwijking van het Gemiddelde ---")
+# Kans op afwijking van het gemiddelde sectie
+st.header("Kans op Afwijking van het Gemiddelde")
+st.markdown("""
+Als de data normaal verdeeld is, kunnen we de kans berekenen dat een willekeurige aardappel meer dan een bepaald aantal
+standaarddeviaties van het gemiddelde afwijkt.
+""")
 
-# We gaan ervan uit dat de aardappelgewichten normaal verdeeld zijn
-# Voor deze vraag beschouwen we de steekproef als populatie
-# We gebruiken het gemiddelde en de standaardafwijking uit de losse metingen
+# Interactief element: laat gebruiker kiezen hoeveel standaarddeviaties
+z_score = st.slider(
+    "Aantal standaarddeviaties van het gemiddelde",
+    min_value=0.5,
+    max_value=3.0,
+    value=1.8,
+    step=0.1
+)
 
-print("We beschouwen de steekproef nu als populatie met:")
-print(f"- Gemiddelde (μ): {gemiddelde_massa_los:.2f} g")
-print(f"- Standaardafwijking (σ): {handmatige_standaardafwijking_los:.2f} g")
+# Grenswaarden berekenen
+ondergrens_z = float(gemiddelde_massa_los) - z_score * float(handmatige_standaardafwijking_los)
+bovengrens_z = float(gemiddelde_massa_los) + z_score * float(handmatige_standaardafwijking_los)
 
-# We berekenen de kans dat een willekeurige aardappel meer dan 1,8 standaarddeviaties 
-# van het gemiddelde af zit (boven en ondergrens)
-z_score = 1.8
-
-# Grenswaarden voor de z-score 
-# Formule: x = μ ± z * σ
-ondergrens_z = gemiddelde_massa_los - z_score * handmatige_standaardafwijking_los
-bovengrens_z = gemiddelde_massa_los + z_score * handmatige_standaardafwijking_los
-
-print(f"\nGrenswaarden voor ±{z_score} standaarddeviaties van het gemiddelde:")
-print(f"- Ondergrens: {ondergrens_z:.2f} g")
-print(f"- Bovengrens: {bovengrens_z:.2f} g")
-
-
-# stats.norm.cdf geeft de cumulatieve distributiefunctie (CDF) van de normale verdeling
-# Dit is een mathematische functie die een kans percentage geeft voor een bepaalde z-score
-# We berekenen de kans dat een aardappel lichter is dan de ondergrens en zwaarder dan de bovengrens
-
-# De ondergrens
-# P(Z < -1,8)
+# Kansen berekenen
 kans_onder = stats.norm.cdf(-z_score)
-print(f"\nKans dat een aardappel lichter is dan {ondergrens_z:.2f} g: {kans_onder:.4f} = {kans_onder*100:.2f}%")
-
-# De bovengrens
-# P(Z > 1,8)
 kans_boven = 1 - stats.norm.cdf(z_score)
-print(f"Kans dat een aardappel zwaarder is dan {bovengrens_z:.2f} g: {kans_boven:.4f} = {kans_boven*100:.2f}%")
-
-# Totale kans P(|Z| > 1,8) = P(Z < -1,8) + P(Z > 1,8)
 kans_totaal = kans_onder + kans_boven
-print(f"\nTotale kans dat een willekeurige aardappel meer dan {z_score} standaarddeviaties")
-print(f"van het gemiddelde afwijkt: {kans_totaal:.4f} = {kans_totaal*100:.2f}%")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("### Grenswaarden")
+    st.write(f"Gemiddelde (µ): {gemiddelde_massa_los:.2f} g")
+    st.write(f"Standaardafwijking (σ): {handmatige_standaardafwijking_los:.2f} g")
+    st.write(f"Ondergrens (µ - {z_score}σ): {ondergrens_z:.2f} g")
+    st.write(f"Bovengrens (µ + {z_score}σ): {bovengrens_z:.2f} g")
+
+with col2:
+    st.markdown("### Kansen")
+    st.write(f"Kans dat een aardappel lichter is dan {ondergrens_z:.2f} g: {kans_onder:.4f} = {kans_onder*100:.2f}%")
+    st.write(f"Kans dat een aardappel zwaarder is dan {bovengrens_z:.2f} g: {kans_boven:.4f} = {kans_boven*100:.2f}%")
+    st.write(f"Totale kans op afwijking van meer dan {z_score} standaarddeviaties: {kans_totaal:.4f} = {kans_totaal*100:.2f}%")
+
+# Visualisatie van de normale verdeling
+fig, ax = plt.subplots(figsize=(10, 6))
+x = np.linspace(float(gemiddelde_massa_los) - 4*float(handmatige_standaardafwijking_los), 
+                float(gemiddelde_massa_los) + 4*float(handmatige_standaardafwijking_los), 1000)
+y = stats.norm.pdf(x, float(gemiddelde_massa_los), float(handmatige_standaardafwijking_los))
+
+# Plot de normale verdeling
+ax.plot(x, y, 'b-', label='Normale verdeling')
+
+# Kleur de gebieden links van de ondergrens
+x_lower = np.linspace(min(x), float(ondergrens_z), 100)
+y_lower = stats.norm.pdf(x_lower, float(gemiddelde_massa_los), float(handmatige_standaardafwijking_los))
+ax.fill_between(x_lower, y_lower, color='red', alpha=0.3, label=f'Kans op afwijking < -{z_score}σ')
+
+# Kleur de gebieden rechts van de bovengrens
+x_upper = np.linspace(float(bovengrens_z), max(x), 100)
+y_upper = stats.norm.pdf(x_upper, float(gemiddelde_massa_los), float(handmatige_standaardafwijking_los))
+ax.fill_between(x_upper, y_upper, color='red', alpha=0.3, label=f'Kans op afwijking > {z_score}σ')
+
+# Voeg verticale lijnen toe voor het gemiddelde en de grenzen
+ax.axvline(x=gemiddelde_massa_los, color='green', linestyle='-', label='Gemiddelde')
+ax.axvline(x=ondergrens_z, color='red', linestyle='--', label=f'µ - {z_score}σ')
+ax.axvline(x=bovengrens_z, color='red', linestyle='--', label=f'µ + {z_score}σ')
+
+ax.set_title(f'Normale verdeling van aardappelmassa met afwijking > {z_score}σ')
+ax.set_xlabel('Massa (g)')
+ax.set_ylabel('Waarschijnlijkheidsdichtheid')
+ax.legend()
+
+st.pyplot(fig)
+
+st.success(f"""
+De kans dat een willekeurige aardappel meer dan {z_score} standaarddeviaties van het gemiddelde afwijkt is {kans_totaal*100:.2f}%.
+Dit betekent dat ongeveer {kans_totaal*100:.2f}% van alle aardappelen een massa heeft die kleiner is dan {ondergrens_z:.2f} g of groter dan {bovengrens_z:.2f} g.
+""")
+
+st.header("Conclusies en Aanbevelingen")
+st.markdown("""
+Op basis van de statistische analyse van de aardappelmassa's kunnen we de volgende conclusies trekken:
+
+1. **Centrale tendens**: De gemiddelde massa van de aardappels is ongeveer geïdentificeerd en ligt binnen een betrouwbaarheidsinterval.
+2. **Variabiliteit**: De standaardafwijking geeft aan hoe sterk de massa's variëren rond het gemiddelde.
+3. **Normaliteit**: De Normal Probability Plot laat zien in hoeverre de data een normale verdeling volgt.
+4. **Kans op uitschieters**: We hebben de kans berekend dat een willekeurige aardappel sterk afwijkt van het gemiddelde.
+
+### Aanbevelingen
+- De statistische kennis uit deze app kan worden toegepast op andere datasets.
+- Voor toekomstige analyses kunnen meer geavanceerde statistische methoden worden overwogen.
+""")
+
+# Download link voor het rapport
+report = io.StringIO()
+report.write(f"""# Statistisch Rapport Aardappelmassa's
+
+## Basisinformatie
+- Aantal metingen: {totaal_metingen}
+- Minimale massa: {min_massa} g
+- Maximale massa: {max_massa} g
+
+## Centrale tendens
+- Gemiddelde (losse metingen): {gemiddelde_massa_los:.2f} g
+- Gemiddelde (frequentieverdeling): {gemiddelde_massa_freq:.2f} g
+
+## Spreiding
+- Standaardafwijking (losse metingen): {handmatige_standaardafwijking_los:.2f} g
+- Standaardafwijking (frequentieverdeling): {getattr(locals().get('handmatige_standaardafwijking_freq', 0), '__float__', lambda: 0)():.2f} g
+
+## Betrouwbaarheidsintervallen
+- {confidence_level}% BI voor het gemiddelde: [{ondergrens:.2f}, {bovengrens:.2f}] g
+- {confidence_level}% BI voor de standaardafwijking: [{sd_lower:.2f}, {sd_upper:.2f}] g
+
+## Kans op afwijking van het gemiddelde
+- Kans op afwijking > {z_score} standaarddeviaties: {kans_totaal*100:.2f}%
+
+Dit rapport is gegenereerd op {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
+""")
+
+st.download_button(
+    label="Download rapport als tekstbestand",
+    data=report.getvalue(),
+    file_name="aardappel_statistiek_rapport.txt",
+    mime="text/plain"
+)
+
+# Sidebar met contactgegevens en extra info
+st.sidebar.title("Over deze app")
+st.sidebar.info("""
+Deze app is ontwikkeld als een educatief hulpmiddel voor het begrijpen van basis statistiek.
+
+**Kenmerken:**
+- Interactieve visualisaties
+- Stapsgewijze berekeningen
+- Downloadbaar rapport
+
+Voor vragen of suggesties, neem contact op met de ontwikkelaar.
+""")
+
+# Footer
+st.markdown("---")
+st.markdown("© 2025 | Ontwikkeld met Streamlit")
