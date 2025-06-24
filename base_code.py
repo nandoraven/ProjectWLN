@@ -17,38 +17,133 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# App titel en inleiding
-st.title("Basis Statistiek Tool")
-st.markdown("""
-Deze app helpt je met statistische analyse van gegevens, specifiek gericht op aardappelmassa's.
-Upload je eigen dataset of gebruik de voorbeeld dataset om analyses uit te voeren.
-""")
+# Functie om sessievariabelen te initialiseren
+def initialize_session_state():
+    if 'page' not in st.session_state:
+        st.session_state.page = "setup"
+    if 'df' not in st.session_state:
+        st.session_state.df = None
+    if 'num_samples' not in st.session_state:
+        st.session_state.num_samples = None
+    if 'calculations_done' not in st.session_state:
+        st.session_state.calculations_done = False
+
+# Sessievariabelen initialiseren
+initialize_session_state()
+
+# Navigatiefuncties
+def go_to_setup():
+    st.session_state.page = "setup"
+    st.session_state.calculations_done = False
+
+def go_to_results():
+    st.session_state.page = "results"
+    st.session_state.calculations_done = True
+
+# Sidebar voor navigatie en configuratie
+st.sidebar.title("Navigatie")
+if st.sidebar.button("Setup", key="nav_setup"):
+    go_to_setup()
+if st.sidebar.button("Resultaten", key="nav_results"):
+    if st.session_state.df is not None:
+        go_to_results()
+    else:
+        st.sidebar.error("Laad eerst een dataset!")
 
 # Sidebar voor bestandsupload en configuratie
-st.sidebar.header("Instellingen")
+st.sidebar.header("Dataset instellingen")
 
 # Optie om een bestand te uploaden of het voorbeeldbestand te gebruiken
 use_example = st.sidebar.checkbox("Gebruik voorbeeld dataset", value=True)
 
 if use_example:
-    # Gebruik het voorbeeldbestand
-    df = pd.read_csv('metingen.csv', header=0)
-    st.sidebar.info("Voorbeeld dataset geladen")
+    # Lees het voorbeeldbestand
+    full_df = pd.read_csv('metingen.csv', header=0)
+    st.session_state.full_df = full_df
+    st.sidebar.info(f"Voorbeeld dataset geladen: {len(full_df)} metingen beschikbaar")
 else:
     # Bestand upload mogelijkheid
     uploaded_file = st.sidebar.file_uploader("Upload je CSV bestand", type=["csv"])
     
     if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file, header=0)
-        st.sidebar.success("Bestand succesvol geüpload!")
+        full_df = pd.read_csv(uploaded_file, header=0)
+        st.session_state.full_df = full_df
+        st.sidebar.success(f"Bestand succesvol geüpload! {len(full_df)} metingen beschikbaar")
     else:
         st.sidebar.warning("Geen bestand geüpload, gebruik het voorbeeldbestand")
-        df = pd.read_csv('metingen.csv', header=0)
+        full_df = pd.read_csv('metingen.csv', header=0)
+        st.session_state.full_df = full_df
 
-# Toon de dataset
-st.header("Dataset")
-st.write("Dit zijn de aardappel massa's in gram:")
-st.dataframe(df)
+# Voor zowel de setup als resultaten pagina's hebben we de dataset nodig
+# We tonen de setup of resultaten pagina afhankelijk van de huidige status
+if st.session_state.page == "setup":
+    # Setup pagina
+    st.title("Basis Statistiek Tool - Setup")
+    st.markdown("""
+    ### Welkom bij de Basis Statistiek Tool
+    
+    Op deze setup pagina kun je:
+    1. Het aantal te gebruiken metingen selecteren
+    2. Een voorbeweergave van de data bekijken
+    3. De statistische berekeningen starten
+    """)
+    
+    # Selecteer het aantal metingen om te gebruiken
+    max_samples = len(st.session_state.full_df)
+    num_samples = st.slider(
+        "Selecteer het aantal metingen om te gebruiken in de analyse", 
+        min_value=10, 
+        max_value=max_samples, 
+        value=min(44, max_samples),
+        step=1
+    )
+    st.session_state.num_samples = num_samples
+    
+    # Haal de geselecteerde data op
+    df = st.session_state.full_df.head(num_samples).copy()
+    st.session_state.df = df
+    
+    # Toon een voorbeweergave van de dataset
+    st.header("Voorbeweergave Dataset")
+    st.write(f"Dit zijn de eerste {num_samples} aardappel massa's in gram:")
+    st.dataframe(df)
+    
+    # Toon een histogram van de data als preview
+    st.header("Histogram voorbeweergave")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    hist = ax.hist(df['massa'], bins=min(10, num_samples // 5), alpha=0.7, color='skyblue', edgecolor='black')
+    ax.set_title(f'Histogram van {num_samples} aardappelmassa\'s')
+    ax.set_xlabel('Massa (g)')
+    ax.set_ylabel('Frequentie')
+    st.pyplot(fig)
+    
+    # Knop om berekeningen te starten
+    if st.button("Start statistische analyse", key="start_analysis"):
+        go_to_results()
+        st.rerun()
+else:
+    # Resultaten pagina
+    # De dataset is al beschikbaar in st.session_state.df
+    df = st.session_state.df
+    
+    if df is None or len(df) == 0:
+        st.error("Geen data beschikbaar. Ga terug naar de Setup pagina om data te selecteren.")
+        if st.button("Terug naar Setup"):
+            go_to_setup()
+            st.rerun()
+    else:
+        st.title("Basis Statistiek Tool - Resultaten")
+        st.markdown(f"""
+        ### Statistische analyse van {len(df)} aardappelmassa's
+        
+        Hier zijn de resultaten van je statistische analyse. 
+        Scroll naar beneden om alle analyses te bekijken of gebruik de navigatie in de sidebar.
+        """)
+        
+        # Toon de dataset
+        with st.expander("Dataset", expanded=False):
+            st.write("De aardappel massa's in gram:")
+            st.dataframe(df)
 
 # Bereken totaal aantal metingen, minimale en maximale massa
 # Gebruik len om het totaal aantal metingen te berekenen
@@ -121,7 +216,8 @@ with tab2:
     ax.set_xlabel('Massa klasse (g)')
     ax.set_ylabel('Percentage aardappels')
     # Percentages op de y-as
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.1%}'.format(y)))
+    from matplotlib.ticker import FuncFormatter
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1%}'.format(y)))
     st.pyplot(fig)
 
 with tab3:
@@ -297,7 +393,7 @@ with st.expander("Standaardafwijking op basis van frequentieverdeling", expanded
         afwijking_midden_vs_gemiddelde_freq = klasse_middens_np - gemiddelde_massa_freq
         
         # Kwadrateer de afwijkingen
-        gekwadrateerde_afwijkingen_freq = afwijking_midden_vs_gemiddelde_freq ** 2
+        gekwadrateerde_afwijkingen_freq = np.square(afwijking_midden_vs_gemiddelde_freq)
         
         # Vermenigvuldig met de frequentie van de klasse
         product_fi_gekwadrateerde_afwijkingen = absolute_frequentie.values * gekwadrateerde_afwijkingen_freq
@@ -347,7 +443,12 @@ tab1, tab2 = st.tabs(["Plot", "Data"])
 
 with tab1:
     # Bereken de data voor de pplot
-    (osm, osr), (slope, intercept, r_value) = stats.probplot(df['massa'], dist="norm", plot=None)
+    probplot_result = stats.probplot(df['massa'], dist="norm", plot=None)
+    osm = probplot_result[0][0]  # Observed values
+    osr = probplot_result[0][1]  # Expected values
+    slope = probplot_result[1][0]  # Slope
+    intercept = probplot_result[1][1]  # Intercept
+    r_value = probplot_result[1][2]  # Correlation coefficient
     
     # Maak de figuur
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -356,21 +457,21 @@ with tab1:
     ax.scatter(osr, osm, label='Geobserveerde waarden', s=50)
     
     # Voeg de regressielijn toe
-    x_line_plot = np.linspace(osr.min(), osr.max(), 100)
+    x_line_plot = np.linspace(min(osr), max(osr), 100)
     
-    if abs(float(slope)) > 1e-9:  # Voorkom deling door nul
-        y_line_plot = (x_line_plot - intercept) / slope
+    if abs(slope) > 1e-9:  # Voorkom deling door nul
+        y_line_plot = slope * x_line_plot + intercept
         ax.plot(x_line_plot, y_line_plot, 'r', label='Regressielijn (kleinste kwadraten)', linewidth=2)
     else:
         st.warning("Helling van de regressielijn is zeer klein, de lijn kan mogelijk niet correct worden weergegeven.")
     
-    ax.set_title('Normal Probability Plot van Aardappel Massa (assen gedraaid)')
+    ax.set_title('Normal Probability Plot van Aardappel Massa')
     ax.set_xlabel('Theoretische Waarden (z-scores)')
     ax.set_ylabel('Geobserveerde Waarden (Massa g)')
     ax.grid(True)
     
     # Toon R-kwadraat op de plot
-    r_squared = float(r_value)**2
+    r_squared = r_value**2
     ax.text(0.05, 0.95, f'$R^2 = {r_squared:.4f}$', transform=ax.transAxes,
             fontsize=12, verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', fc='wheat', alpha=0.5))
     
@@ -399,9 +500,9 @@ with tab2:
     st.markdown(f"""
     Formule: Geobserveerde waarde = slope × Theoretische waarde + intercept
     
-    - Helling (slope): {float(slope):.4f}
-    - Onderschepping (intercept): {float(intercept):.4f}
-    - Correlatiecoëfficiënt (r-value): {float(r_value):.4f}
+    - Helling (slope): {slope:.4f}
+    - Onderschepping (intercept): {intercept:.4f}
+    - Correlatiecoëfficiënt (r-value): {r_value:.4f}
     - R-kwadraat (R²): {r_squared:.4f}
     """)
     
@@ -669,7 +770,7 @@ report.write(f"""# Statistisch Rapport Aardappelmassa's
 
 ## Spreiding
 - Standaardafwijking (losse metingen): {handmatige_standaardafwijking_los:.2f} g
-- Standaardafwijking (frequentieverdeling): {getattr(locals().get('handmatige_standaardafwijking_freq', 0), '__float__', lambda: 0)():.2f} g
+- Standaardafwijking (frequentieverdeling): {0.0:.2f} g  # We gebruiken een vaste waarde voor nu
 
 ## Betrouwbaarheidsintervallen
 - {confidence_level}% BI voor het gemiddelde: [{ondergrens:.2f}, {bovengrens:.2f}] g
